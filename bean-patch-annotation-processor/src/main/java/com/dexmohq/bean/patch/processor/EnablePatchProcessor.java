@@ -3,25 +3,35 @@ package com.dexmohq.bean.patch.processor;
 import com.dexmohq.bean.patch.spi.EnablePatch;
 import com.dexmohq.bean.patch.spi.Patch;
 import com.google.auto.service.AutoService;
+import com.squareup.javapoet.*;
 
-import javax.annotation.processing.AbstractProcessor;
-import javax.annotation.processing.Processor;
-import javax.annotation.processing.RoundEnvironment;
+import javax.annotation.processing.*;
 import javax.lang.model.SourceVersion;
 import javax.lang.model.element.Element;
+import javax.lang.model.element.Modifier;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.type.DeclaredType;
 import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
 import javax.tools.Diagnostic;
-import javax.tools.JavaFileObject;
 import java.io.IOException;
-import java.io.PrintWriter;
+import java.time.LocalDateTime;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
 @AutoService(Processor.class)
 public class EnablePatchProcessor extends AbstractProcessor {
+
+    private Utils utils;
+    private PatcherGenerator patcherGenerator;
+
+    @Override
+    public synchronized void init(ProcessingEnvironment processingEnv) {
+        super.init(processingEnv);
+        utils = new Utils(processingEnv.getTypeUtils());
+        patcherGenerator = new PatcherGenerator(processingEnv.getElementUtils());
+    }
 
     public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment roundEnv) {
         for (final Element element : roundEnv.getElementsAnnotatedWith(EnablePatch.class)) {
@@ -40,20 +50,16 @@ public class EnablePatchProcessor extends AbstractProcessor {
                 error(element, "Class annotated with @EnablePatch must implement Patch<T> with concrete type variable T");
                 return true;
             }
-            final DeclaredType declaredPatchedType = (DeclaredType) patchedType;
-            final String entityName = declaredPatchedType.asElement().getSimpleName().toString();
+            final var patchProperties = utils.getProperties(typeElement);
+            final var javaFile = patcherGenerator.generate(element,
+                    ((TypeElement) ((DeclaredType) patchedType).asElement()),
+                    typeElement,
+                    patchProperties);
+
             try {
-                final String pkg = processingEnv.getElementUtils().getPackageOf(element).getQualifiedName().toString();
-                final JavaFileObject file = processingEnv.getFiler().createSourceFile(pkg+"."+entityName + "Patcher", element);
 
-                final PrintWriter out = new PrintWriter(file.openWriter());
-                out.println("package " + pkg + ";");
-                out.println("public interface " + entityName + "Patcher {");
-                out.println(entityName + " applyPatch(" + typeElement.getQualifiedName().toString() + " patch);");
-                out.println("}");
-                out.close();
-
-
+                javaFile
+                        .writeTo(processingEnv.getFiler());
             } catch (IOException e) {
                 error(element, e.getMessage());
                 return true;
