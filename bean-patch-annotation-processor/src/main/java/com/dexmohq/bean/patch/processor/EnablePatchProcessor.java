@@ -16,9 +16,12 @@ import javax.lang.model.type.TypeMirror;
 import javax.tools.Diagnostic;
 import java.io.IOException;
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+
+import static java.util.stream.Collectors.joining;
 
 @AutoService(Processor.class)
 public class EnablePatchProcessor extends AbstractProcessor {
@@ -34,38 +37,47 @@ public class EnablePatchProcessor extends AbstractProcessor {
     }
 
     public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment roundEnv) {
-        for (final Element element : roundEnv.getElementsAnnotatedWith(EnablePatch.class)) {
-            final TypeElement typeElement = (TypeElement) element;
-            final TypeMirror PATCH_INTERFACE = processingEnv.getElementUtils().getTypeElement(Patch.class.getCanonicalName()).asType();
 
-            final Optional<? extends TypeMirror> patchInterface = typeElement.getInterfaces().stream()
-                    .filter(t -> processingEnv.getTypeUtils().isAssignable(processingEnv.getTypeUtils().erasure(t), PATCH_INTERFACE))
-                    .findFirst();
-            if (patchInterface.isEmpty()) {
-                error(element, "Class annotated with @EnablePatch must implement Patch<T>");
-                return true;
-            }
-            final TypeMirror patchedType = ((DeclaredType) patchInterface.get()).getTypeArguments().get(0);
-            if (patchedType.getKind() != TypeKind.DECLARED) {
-                error(element, "Class annotated with @EnablePatch must implement Patch<T> with concrete type variable T");
-                return true;
-            }
-            final var patchProperties = utils.getProperties(typeElement);
-            final var javaFile = patcherGenerator.generate(element,
-                    ((TypeElement) ((DeclaredType) patchedType).asElement()),
-                    typeElement,
-                    patchProperties);
+            for (final Element element : roundEnv.getElementsAnnotatedWith(EnablePatch.class)) {
+                try {
+                final TypeElement typeElement = (TypeElement) element;
+                final TypeMirror PATCH_INTERFACE = processingEnv.getElementUtils().getTypeElement(Patch.class.getCanonicalName()).asType();
 
-            try {
+                final Optional<? extends TypeMirror> patchInterface = typeElement.getInterfaces().stream()
+                        .filter(t -> processingEnv.getTypeUtils().isAssignable(processingEnv.getTypeUtils().erasure(t), PATCH_INTERFACE))
+                        .findFirst();
+                if (patchInterface.isEmpty()) {
+                    error(element, "Class annotated with @EnablePatch must implement Patch<T>");
+                    return true;
+                }
+                final TypeMirror patchedType = ((DeclaredType) patchInterface.get()).getTypeArguments().get(0);
+                if (patchedType.getKind() != TypeKind.DECLARED) {
+                    error(element, "Class annotated with @EnablePatch must implement Patch<T> with concrete type variable T");
+                    return true;
+                }
+                final var patchProperties = utils.getProperties(typeElement);
+                final var javaFiles = patcherGenerator.generate(element,
+                        ((TypeElement) ((DeclaredType) patchedType).asElement()),
+                        typeElement,
+                        patchProperties);
 
-                javaFile
-                        .writeTo(processingEnv.getFiler());
-            } catch (IOException e) {
-                error(element, e.getMessage());
-                return true;
+                try {
+
+                    for (final JavaFile javaFile : javaFiles) {
+                        javaFile.writeTo(processingEnv.getFiler());
+                    }
+                } catch (IOException e) {
+                    error(element, e.getMessage());
+                    return true;
+                }
+                } catch (Exception e) {
+                    error(element, "Unexpected error during processing of %s: %s: %s:\n%s",
+                            getClass(), e.getClass(), e.getMessage(), Arrays.stream(e.getStackTrace()).map(StackTraceElement::toString).collect(joining("\n")));
+                    return true;
+                }
             }
-        }
-        return true;
+            return true;
+
     }
 
     private void error(Element e, String msg, Object... args) {

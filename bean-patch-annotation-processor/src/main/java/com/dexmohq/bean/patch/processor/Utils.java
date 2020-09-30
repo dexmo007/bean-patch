@@ -42,8 +42,8 @@ public class Utils {
                     final String propertyName = CaseFormat.UPPER_CAMEL.to(CaseFormat.LOWER_CAMEL, methodElement.getSimpleName().toString().substring(isGetter));
                     final TypeMirror propertyType = methodElement.getReturnType();
                     final var property = properties.computeIfAbsent(propertyName, name -> new PropertyDescriptor(name, propertyType));
-                    if (!property.getType().equals(propertyType)) {
-                        throw new IllegalStateException("Getter type does not match property type");
+                    if (!types.isSameType(property.getType(), propertyType)) {
+                        throw new IllegalStateException(String.format("Getter type %s does not match property type %s", propertyType, property.getType()));
                     }
                     property.setGetter(methodElement);
                 }
@@ -51,7 +51,7 @@ public class Utils {
                     final String propertyName = CaseFormat.UPPER_CAMEL.to(CaseFormat.LOWER_CAMEL, methodElement.getSimpleName().toString().substring(3));
                     final TypeMirror propertyType = methodElement.getParameters().get(0).asType();
                     final var property = properties.computeIfAbsent(propertyName, name -> new PropertyDescriptor(name, propertyType));
-                    if (!property.getType().equals(propertyType)) {
+                    if (!types.isSameType(property.getType(), propertyType)) {
                         throw new IllegalStateException("Setter type does not match property type");
                     }
                     property.setSetter(methodElement);
