@@ -3,6 +3,7 @@ package com.dexmohq.bean.patch.processor;
 import com.dexmohq.bean.patch.spi.Patch;
 import com.dexmohq.bean.patch.spi.Patcher;
 import com.google.auto.service.AutoService;
+import com.squareup.javapoet.JavaFile;
 import com.squareup.javapoet.MethodSpec;
 
 import javax.annotation.processing.ProcessingEnvironment;
@@ -12,6 +13,10 @@ import javax.lang.model.type.ArrayType;
 import javax.lang.model.type.DeclaredType;
 import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
+import javax.tools.FileObject;
+import javax.tools.JavaFileManager;
+import javax.tools.StandardLocation;
+import java.io.BufferedWriter;
 import java.io.IOException;
 import java.util.*;
 
@@ -64,7 +69,7 @@ public class EnablePatchProcessor extends BaseProcessor<TypeElement> {
                 }
                 patchParameters.put(i, new PatchParameter(parameter, PatchParameterType.ARRAY, componentType));
                 patchTypes.add(((DeclaredType) componentType));
-            } else if (utils.implementsInterface(parameter.asType(), elements.getTypeElement(Collection.class.getCanonicalName()))){
+            } else if (utils.implementsInterface(parameter.asType(), elements.getTypeElement(Collection.class.getCanonicalName()))) {
                 final TypeMirror elementType = utils.findElementTypeOfCollection(parameter.asType());
                 if (elementType.getKind() != TypeKind.DECLARED) {
                     throw new ProcessingException(parameter, "Element type of patch parameter must be a declared type");
@@ -125,9 +130,21 @@ public class EnablePatchProcessor extends BaseProcessor<TypeElement> {
             final MethodSpec patchMethodSpec = patcherGenerator.generatePatchMethod(patchTypePair, patchProperties);
             patchMethodImpls.put(patchTypePair, patchMethodSpec);
         }
+        final JavaFile javaFile = patcherGenerator.generatePatcherImplementation(element, patchMethods, patchMethodImpls);
+        javaFile.writeTo(filer);
+        generateServiceFile(element, javaFile);
+    }
 
-
-        patcherGenerator.generatePatcherImplementation(element, patchMethods, patchMethodImpls)
-                .writeTo(filer);
+    private void generateServiceFile(TypeElement patcherInterface, JavaFile impl) throws IOException {
+        final String fqImpl = impl.packageName.isEmpty()
+                ? impl.typeSpec.name
+                : impl.packageName + "." + impl.typeSpec.name;
+        final String resourceFile = "META-INF/services/" + patcherInterface.getQualifiedName().toString();
+        final FileObject file = filer.createResource(StandardLocation.CLASS_OUTPUT, "", resourceFile, patcherInterface);
+        final BufferedWriter writer = new BufferedWriter(file.openWriter());
+        writer.write(fqImpl);
+        writer.newLine();
+        writer.flush();
+        writer.close();
     }
 }
