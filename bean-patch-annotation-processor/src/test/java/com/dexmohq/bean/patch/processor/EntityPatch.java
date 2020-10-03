@@ -1,4 +1,4 @@
-package com.dexmohq.bean.patch.example;
+package com.dexmohq.bean.patch.processor;
 
 import com.dexmohq.bean.patch.spi.Patch;
 

@@ -1,6 +1,5 @@
 package com.dexmohq.bean.patch.processor;
 
-import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import javax.tools.*;
@@ -35,4 +34,24 @@ public class SimpleTests {
                     assertThat(diagnostic.getLineNumber()).isEqualTo(6);
                 });
     }
+
+    @Test
+    void testPatcher() {
+        final JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
+        final DiagnosticCollector<JavaFileObject> diagnosticCollector = new DiagnosticCollector<>();
+        final StandardJavaFileManager fileManager = compiler.getStandardFileManager(diagnosticCollector, null, null);
+        final Iterable<? extends JavaFileObject> javaFiles = fileManager.getJavaFileObjects(TestUtils.findSourceFile(EntityPatcher.class));
+
+        final JavaCompiler.CompilationTask task = compiler.getTask(new StringWriter(),
+                fileManager,
+                diagnosticCollector,
+                List.of("-proc:only"),
+                null,
+                javaFiles);
+        task.setProcessors(List.of(new EnablePatchProcessor()));
+        task.call();
+
+        assertThat(diagnosticCollector.getDiagnostics()).hasSize(0);
+    }
+
 }

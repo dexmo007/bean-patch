@@ -1,97 +1,133 @@
 package com.dexmohq.bean.patch.processor;
 
-import com.dexmohq.bean.patch.spi.EnablePatch;
 import com.dexmohq.bean.patch.spi.Patch;
+import com.dexmohq.bean.patch.spi.Patcher;
 import com.google.auto.service.AutoService;
-import com.squareup.javapoet.*;
+import com.squareup.javapoet.MethodSpec;
 
-import javax.annotation.processing.*;
-import javax.lang.model.SourceVersion;
-import javax.lang.model.element.Element;
-import javax.lang.model.element.Modifier;
-import javax.lang.model.element.TypeElement;
+import javax.annotation.processing.ProcessingEnvironment;
+import javax.annotation.processing.Processor;
+import javax.lang.model.element.*;
+import javax.lang.model.type.ArrayType;
 import javax.lang.model.type.DeclaredType;
 import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
-import javax.tools.Diagnostic;
 import java.io.IOException;
-import java.time.LocalDateTime;
-import java.util.Arrays;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
-
-import static java.util.stream.Collectors.joining;
+import java.util.*;
 
 @AutoService(Processor.class)
-public class EnablePatchProcessor extends AbstractProcessor {
+public class EnablePatchProcessor extends BaseProcessor<TypeElement> {
 
     private Utils utils;
     private PatcherGenerator patcherGenerator;
+    private TypeElement patchInterface;
+
+    public EnablePatchProcessor() {
+        super(Patcher.class, TypeElement.class);
+    }
 
     @Override
     public synchronized void init(ProcessingEnvironment processingEnv) {
         super.init(processingEnv);
-        utils = new Utils(processingEnv.getTypeUtils());
-        patcherGenerator = new PatcherGenerator(processingEnv.getElementUtils());
+        utils = new Utils(types, elements);
+        patcherGenerator = new PatcherGenerator(elements, utils);
+        patchInterface = processingEnv.getElementUtils().getTypeElement(Patch.class.getCanonicalName());
     }
 
-    public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment roundEnv) {
-
-            for (final Element element : roundEnv.getElementsAnnotatedWith(EnablePatch.class)) {
-                try {
-                final TypeElement typeElement = (TypeElement) element;
-                final TypeMirror PATCH_INTERFACE = processingEnv.getElementUtils().getTypeElement(Patch.class.getCanonicalName()).asType();
-
-                final Optional<? extends TypeMirror> patchInterface = typeElement.getInterfaces().stream()
-                        .filter(t -> processingEnv.getTypeUtils().isAssignable(processingEnv.getTypeUtils().erasure(t), PATCH_INTERFACE))
-                        .findFirst();
-                if (patchInterface.isEmpty()) {
-                    error(element, "Class annotated with @EnablePatch must implement Patch<T>");
-                    return true;
+    private PatchMethod extractPatchMethod(ExecutableElement method) {
+        if (!method.getTypeParameters().isEmpty()) {
+            throw new ProcessingException(method, "Patch method cannot have type parameters");
+        }
+        final TypeMirror entityType = method.getReturnType();
+        if (entityType.getKind() != TypeKind.DECLARED) {
+            throw new ProcessingException(method, "Entity type must be a declared type");
+        }
+        VariableElement entityParam = null;
+        Integer entityParamIndex = null;
+        final Map<Integer, PatchParameter> patchParameters = new HashMap<>();
+        final Set<DeclaredType> patchTypes = utils.typeMirrorSet();
+        for (int i = 0; i < method.getParameters().size(); i++) {
+            final VariableElement parameter = method.getParameters().get(i);
+            if (types.isSameType(parameter.asType(), entityType)) {
+                entityParam = parameter;
+                entityParamIndex = i;
+            } else if (utils.implementsInterfaceConcretely(parameter.asType(), patchInterface, entityType)) {
+                patchParameters.put(i, new PatchParameter(parameter, PatchParameterType.SINGLE, parameter.asType()));
+                patchTypes.add((DeclaredType) parameter.asType());
+            } else if (parameter.asType().getKind() == TypeKind.ARRAY) {
+                final TypeMirror componentType = ((ArrayType) parameter.asType()).getComponentType();
+                if (componentType.getKind() != TypeKind.DECLARED) {
+                    throw new ProcessingException(parameter, "Component type of patch parameter must be a declared type");
                 }
-                final TypeMirror patchedType = ((DeclaredType) patchInterface.get()).getTypeArguments().get(0);
-                if (patchedType.getKind() != TypeKind.DECLARED) {
-                    error(element, "Class annotated with @EnablePatch must implement Patch<T> with concrete type variable T");
-                    return true;
+                if (!utils.implementsInterfaceConcretely(componentType, patchInterface, entityType)) {
+                    throw new ProcessingException(parameter, "Component type must implement patch of entity");
                 }
-                final var patchProperties = utils.getProperties(typeElement);
-                final var javaFiles = patcherGenerator.generate(element,
-                        ((TypeElement) ((DeclaredType) patchedType).asElement()),
-                        typeElement,
-                        patchProperties);
-
-                try {
-
-                    for (final JavaFile javaFile : javaFiles) {
-                        javaFile.writeTo(processingEnv.getFiler());
-                    }
-                } catch (IOException e) {
-                    error(element, e.getMessage());
-                    return true;
+                patchParameters.put(i, new PatchParameter(parameter, PatchParameterType.ARRAY, componentType));
+                patchTypes.add(((DeclaredType) componentType));
+            } else if (utils.implementsInterface(parameter.asType(), elements.getTypeElement(Collection.class.getCanonicalName()))){
+                final TypeMirror elementType = utils.findElementTypeOfCollection(parameter.asType());
+                if (elementType.getKind() != TypeKind.DECLARED) {
+                    throw new ProcessingException(parameter, "Element type of patch parameter must be a declared type");
                 }
-                } catch (Exception e) {
-                    error(element, "Unexpected error during processing of %s: %s: %s:\n%s",
-                            getClass(), e.getClass(), e.getMessage(), Arrays.stream(e.getStackTrace()).map(StackTraceElement::toString).collect(joining("\n")));
-                    return true;
+                if (!utils.implementsInterfaceConcretely(elementType, patchInterface, entityType)) {
+                    throw new ProcessingException(parameter, "Element type must implement patch of entity");
                 }
+                patchParameters.put(i, new PatchParameter(parameter, PatchParameterType.COLLECTION, elementType));
+                patchTypes.add(((DeclaredType) elementType));
+            } else {
+                throw new ProcessingException(parameter, "Patch method parameter must either be of entity type or patch type");
             }
-            return true;
+        }
+        if (entityParam == null) {
+            throw new ProcessingException(method, "Patch method must have a parameter of the entity type");
+        }
+        if (patchParameters.isEmpty()) {
+            throw new ProcessingException(method, "Patch method must include parameter(s) of the patch type");
+        }
 
-    }
 
-    private void error(Element e, String msg, Object... args) {
-        processingEnv.getMessager()
-                .printMessage(Diagnostic.Kind.ERROR, String.format(msg, args), e);
+        return PatchMethod.builder()
+                .element(method)
+                .entityParameter(entityParam)
+                .entityParameterIndex(entityParamIndex)
+                .entityType((DeclaredType) entityType)
+                .patchParameters(patchParameters)
+                .patchTypes(patchTypes)
+                .build();
     }
 
     @Override
-    public Set<String> getSupportedAnnotationTypes() {
-        return Set.of(EnablePatch.class.getCanonicalName());
-    }
+    protected void process(TypeElement element) throws IOException {
 
-    @Override
-    public SourceVersion getSupportedSourceVersion() {
-        return SourceVersion.latestSupported();
+        if (element.getKind() != ElementKind.INTERFACE) {
+            error(element, "Class annotated with @Patcher must be an interface");
+            return;
+        }
+        final List<PatchMethod> patchMethods = new ArrayList<>();
+        for (final Element child : element.getEnclosedElements()) {
+            if (child.getKind() == ElementKind.METHOD) {
+                final ExecutableElement method = (ExecutableElement) child;
+                if (method.isDefault()) {
+                    continue;
+                }
+                final PatchMethod patchMethod = extractPatchMethod(method);
+                patchMethods.add(patchMethod);
+            }
+        }
+        final Set<PatchTypePair> patchTypePairs = patchMethods.stream()
+                .flatMap(patchMethod -> patchMethod.getPatchTypes().stream()
+                        .map(patchType -> new PatchTypePair(patchMethod.getEntityType(), patchType)))
+                .collect(utils.toTypeMirrorLikeSet());
+
+        Map<PatchTypePair, MethodSpec> patchMethodImpls = new HashMap<>();
+        for (final PatchTypePair patchTypePair : patchTypePairs) {
+            final var patchProperties = utils.getProperties(patchTypePair.getPatchTypeElement());
+            final MethodSpec patchMethodSpec = patcherGenerator.generatePatchMethod(patchTypePair, patchProperties);
+            patchMethodImpls.put(patchTypePair, patchMethodSpec);
+        }
+
+
+        patcherGenerator.generatePatcherImplementation(element, patchMethods, patchMethodImpls)
+                .writeTo(filer);
     }
 }

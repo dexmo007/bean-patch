@@ -1,15 +1,11 @@
-package com.dexmohq.bean.patch.example;
-
-import com.dexmohq.bean.patch.spi.Patch;
+package com.dexmohq.bean.patch.processor;
 
 import java.util.List;
 
-public class EntityPatch implements Patch<Entity> {
+public class Entity {
 
     private String text;
-
-
-    private Integer foo;
+    private int foo;
 
     private List<Integer> numbers;
 
@@ -21,12 +17,11 @@ public class EntityPatch implements Patch<Entity> {
         this.text = text;
     }
 
-    public Integer getFoo() {
+    public int getFoo() {
         return foo;
     }
 
-
-    public void setFoo(Integer foo) {
+    public void setFoo(int foo) {
         this.foo = foo;
     }
 
