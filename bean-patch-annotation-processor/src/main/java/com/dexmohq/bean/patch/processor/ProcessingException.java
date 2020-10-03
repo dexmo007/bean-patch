@@ -10,6 +10,9 @@ public class ProcessingException extends RuntimeException {
         super(message);
         this.origin = origin;
     }
+    public ProcessingException(Element origin, String format, Object... args) {
+        this(origin, String.format(format, args));
+    }
 
     public Element getOrigin() {
         return origin;

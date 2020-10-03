@@ -33,73 +33,33 @@ public class PatcherGenerator {
                 .build();
     }
 
-    public List<JavaFile> generate(Element origin,
-                                   TypeElement entityTypeElement,
-                                   TypeElement patchTypeElement,
-                                   Map<String, PropertyDescriptor> patchProperties) {
-        final String pkg = elements.getPackageOf(patchTypeElement).getQualifiedName().toString();
-        final var entityName = entityTypeElement.getSimpleName().toString();
-
-        final var applyPatchMethod = MethodSpec.methodBuilder("applyPatch")
-                .addModifiers(Modifier.PUBLIC, Modifier.ABSTRACT)
-                .addParameter(TypeName.get(entityTypeElement.asType()), "entity")
-                .addParameter(TypeName.get(patchTypeElement.asType()), "patch")
-                .returns(TypeName.get(entityTypeElement.asType()))
-                .addJavadoc(patchProperties.values().stream()
-                        .map(p -> p.getType().toString() + " " + p.getName())
-                        .collect(Collectors.joining(", "))
-                )
-                .build();
-
-        final AnnotationSpec generatedAnnotation = generateGeneratedAnnotation();
-        final TypeSpec patcherInterface = TypeSpec.interfaceBuilder(entityName + "Patcher")
-                .addOriginatingElement(origin)
-                .addAnnotation(generatedAnnotation)
-                .addModifiers(Modifier.PUBLIC)
-                .addMethod(applyPatchMethod)
-                .build();
-
-        List<CodeBlock> patchBlocks = generatePatchingBlocks(patchProperties);
-
-        final var implementation = TypeSpec.classBuilder(entityName + "PatcherImpl")
-                .addOriginatingElement(origin)
-                .addAnnotation(generatedAnnotation)
-                .addModifiers(Modifier.PUBLIC)
-                .addSuperinterface(ClassName.get(pkg, patcherInterface.name))
-                .addMethod(MethodSpec.methodBuilder(applyPatchMethod.name)
-                        .addAnnotation(Override.class)
-                        .addModifiers(Modifier.PUBLIC)
-                        .addParameters(applyPatchMethod.parameters)
-                        .returns(applyPatchMethod.returnType)
-                        .addCode(CodeBlock.join(patchBlocks, "\n"))
-                        .addCode("return entity;")
-                        .build())
-                .build();
-
-        return List.of(
-                JavaFile.builder(pkg, patcherInterface).build(),
-                JavaFile.builder(pkg, implementation).build()
-        );
-    }
-
-    private List<CodeBlock> generatePatchingBlocks(Map<String, PropertyDescriptor> patchProperties) {
+    private List<CodeBlock> generatePatchingBlocks(List<PatchPropertyDefinition> patchPropertyDefinitions) {
         List<CodeBlock> patchBlocks = new ArrayList<>();
-        for (final PropertyDescriptor prop : patchProperties.values()) {
-            final var block = CodeBlock.builder()
-                    .beginControlFlow("if (patch.$N() != null)", prop.getGetter().getSimpleName().toString())
-                    .addStatement("entity.$N(patch.$N())",
-                            prop.getSetter().getSimpleName().toString(),
-                            prop.getGetter().getSimpleName().toString())
-                    .endControlFlow()
-                    .build();
-            patchBlocks.add(block);
+        for (final PatchPropertyDefinition def : patchPropertyDefinitions) {
+            final var patchReadMethod = def.getPatchReadMethod();
+            final var entityWriteMethod = def.getEntityWriteMethod();
+            final var code = CodeBlock.builder()
+                    .beginControlFlow("if (patch.$N() != null)", patchReadMethod.getSimpleName().toString());
+            switch (def.getPatchType()) {
+                case SET:
+                    code.addStatement("entity.$N(patch.$N())",
+                            entityWriteMethod.getSimpleName().toString(),
+                            patchReadMethod.getSimpleName().toString());
+                    break;
+                case ADD:
+                case REMOVE:
+                default:
+                    throw new UnsupportedOperationException();
+            }
+
+            patchBlocks.add(code.endControlFlow().build());
         }
         return patchBlocks;
     }
 
-    public MethodSpec generatePatchMethod(PatchTypePair patchTypePair, Map<String, PropertyDescriptor> patchProperties) {
-        final TypeName entityTypeName = TypeName.get(patchTypePair.getEntityType());
-        final TypeName patchTypeName = TypeName.get(patchTypePair.getPatchType());
+    public MethodSpec generatePatchMethod(PatchDefinition patchDefinition) {
+        final TypeName entityTypeName = TypeName.get(patchDefinition.getEntityType());
+        final TypeName patchTypeName = TypeName.get(patchDefinition.getPatchType());
         final ParameterSpec entityParam = ParameterSpec.builder(entityTypeName, "entity").build();
         final ParameterSpec patchParam = ParameterSpec.builder(patchTypeName, "patch").build();
 
@@ -108,13 +68,12 @@ public class PatcherGenerator {
                 .returns(entityTypeName)
                 .addParameter(entityParam)
                 .addParameter(patchParam)
-                .addCode(CodeBlock.join(generatePatchingBlocks(patchProperties), "\n"))
+                .addCode(CodeBlock.join(generatePatchingBlocks(patchDefinition.getPropertyDefinitions()), "\n"))
                 .addCode(CodeBlock.of("return $N;", entityParam))
                 .build();
     }
 
     public TypeSpec.Builder generatePatcherImplementation(TypeElement origin, List<PatchMethod> patchMethods, Map<PatchTypePair, MethodSpec> impls) {
-        final String pkg = elements.getPackageOf(origin).getQualifiedName().toString();
         final var patcherImplSpecBuilder = TypeSpec.classBuilder(origin.getSimpleName().toString() + "Impl")
                 .addAnnotation(generateGeneratedAnnotation())
                 .addModifiers(Modifier.PUBLIC)
@@ -132,11 +91,10 @@ public class PatcherGenerator {
                     .returns(TypeName.get(patchMethod.getElement().getReturnType()));
             for (final PatchParameter patchParam : patchMethod.getPatchParameters().values()) {
                 final PatchTypePair pair = new PatchTypePair(patchMethod.getEntityType(), ((DeclaredType) patchParam.getPatchType()));
-                final MethodSpec methodToCall = impls.entrySet().stream()
-                        .filter(p -> utils.areEqual(p.getKey(), pair))
-                        .map(Map.Entry::getValue)
-                        .findFirst()
-                        .orElseThrow(() -> new IllegalStateException(String.format("Implemented method not found for %s and %s", pair.getEntityType(), pair.getPatchType())));
+                final MethodSpec methodToCall = impls.get(pair);
+                if (methodToCall == null) {
+                    throw new IllegalStateException(String.format("Implemented method not found for %s and %s", pair.getEntityType(), pair.getPatchType()));
+                }
 
                 switch (patchParam.getType()) {
                     case SINGLE:
@@ -162,7 +120,7 @@ public class PatcherGenerator {
         return patcherImplSpecBuilder;
     }
 
-    public TypeSpec.Builder postProcess(TypeSpec.Builder builder, Patcher annotation) {
+    public void postProcess(TypeSpec.Builder builder, Patcher annotation) {
         switch (annotation.componentModel()) {
             case SPRING:
                 builder.addAnnotation(Component.class);
@@ -170,7 +128,6 @@ public class PatcherGenerator {
             case SERVICE_LOADER:
             default:
         }
-        return builder;
     }
 
     public JavaFile createFile(Element origin, TypeSpec typeSpec) {

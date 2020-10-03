@@ -24,6 +24,7 @@ public class Utils {
         this.types = types;
         this.elements = elements;
     }
+
     public boolean implementsInterface(TypeMirror type, TypeElement interfaceType) {
         if (type.getKind() != TypeKind.DECLARED) {
             return false;
@@ -57,67 +58,7 @@ public class Utils {
                 .allMatch(i -> types.isSameType(typeArgs.get(i), typeVariableAssignments[i]));
     }
 
-    public Map<String, PropertyDescriptor> getProperties(TypeElement element) {
-        final var properties = new HashMap<String, PropertyDescriptor>();
-        for (final Element child : element.getEnclosedElements()) {
-            if (child.getKind() == ElementKind.FIELD
-                    && !child.getModifiers().contains(Modifier.STATIC)) {
-                final String fieldName = child.getSimpleName().toString();
-                final TypeMirror fieldType = child.asType();
-                final var property = properties.computeIfAbsent(fieldName, name -> new PropertyDescriptor(name, fieldType));
-                if (!property.getType().equals(fieldType)) {
-                    throw new IllegalStateException("Field type does not match property type");
-                }
-                property.setField(((VariableElement) child));
-            } else if (child.getKind() == ElementKind.METHOD
-                    && child.getModifiers().contains(Modifier.PUBLIC)
-                    && !child.getModifiers().contains(Modifier.STATIC)
 
-            ) {
-                final ExecutableElement methodElement = (ExecutableElement) child;
-                final int isGetter = isGetter(methodElement);
-                if (isGetter > 0) {
-                    final String propertyName = CaseFormat.UPPER_CAMEL.to(CaseFormat.LOWER_CAMEL, methodElement.getSimpleName().toString().substring(isGetter));
-                    final TypeMirror propertyType = methodElement.getReturnType();
-                    final var property = properties.computeIfAbsent(propertyName, name -> new PropertyDescriptor(name, propertyType));
-                    if (!types.isSameType(property.getType(), propertyType)) {
-                        throw new IllegalStateException(String.format("Getter type %s does not match property type %s", propertyType, property.getType()));
-                    }
-                    property.setGetter(methodElement);
-                }
-                if (isSetter(methodElement)) {
-                    final String propertyName = CaseFormat.UPPER_CAMEL.to(CaseFormat.LOWER_CAMEL, methodElement.getSimpleName().toString().substring(3));
-                    final TypeMirror propertyType = methodElement.getParameters().get(0).asType();
-                    final var property = properties.computeIfAbsent(propertyName, name -> new PropertyDescriptor(name, propertyType));
-                    if (!types.isSameType(property.getType(), propertyType)) {
-                        throw new IllegalStateException("Setter type does not match property type");
-                    }
-                    property.setSetter(methodElement);
-                }
-            }
-        }
-        return properties;
-    }
-
-    private int isGetter(ExecutableElement element) {
-        final String name = element.getSimpleName().toString();
-        if (!element.getParameters().isEmpty()) {
-            return 0;
-        }
-        if (name.startsWith("get")) {
-            return 3;
-        }
-        if (element.getReturnType().equals(types.getPrimitiveType(TypeKind.BOOLEAN)) && name.startsWith("is")) {
-            return 2;
-        }
-        return 0;
-    }
-
-    private boolean isSetter(ExecutableElement element) {
-        return element.getReturnType().equals(types.getNoType(TypeKind.VOID))
-                && element.getParameters().size() == 1
-                && element.getSimpleName().toString().startsWith("set");
-    }
 
     public <T extends TypeMirror> Comparator<T> typeMirrorComparator() {
         return (o1, o2) -> {
@@ -192,5 +133,32 @@ public class Utils {
             }
         }
         return null;
+    }
+
+    public <K, V> Map<K, V> newTypeMirrorLikeMap(Function<? super K, ? extends TypeMirror[]> toTypeMirrors) {
+        return new TypeMirrorLikeMap<>(this) {
+            @Override
+            protected TypeMirrorLike toTypeMirrorLike(K key) {
+                return () -> toTypeMirrors.apply(key);
+            }
+        };
+    }
+
+    public <K extends TypeMirrorLike, V> Map<K, V> newTypeMirrorLikeMap() {
+        return new TypeMirrorLikeMap<>(this) {
+            @Override
+            protected TypeMirrorLike toTypeMirrorLike(K key) {
+                return key;
+            }
+        };
+    }
+
+    public <K extends TypeMirror, V> Map<K, V> newTypeMirrorMap() {
+        return new TypeMirrorLikeMap<>(this) {
+            @Override
+            protected TypeMirrorLike toTypeMirrorLike(K key) {
+                return () -> new TypeMirror[]{key};
+            }
+        };
     }
 }

@@ -1,6 +1,10 @@
 package com.dexmohq.bean.patch.processor;
 
+import com.dexmohq.bean.patch.processor.beans.PatchIntrospector;
+import com.dexmohq.bean.patch.processor.beans.PropertyDescriptor;
 import com.dexmohq.bean.patch.spi.Patch;
+import com.dexmohq.bean.patch.spi.PatchIgnore;
+import com.dexmohq.bean.patch.spi.PatchProperty;
 import com.dexmohq.bean.patch.spi.Patcher;
 import com.google.auto.service.AutoService;
 import com.squareup.javapoet.JavaFile;
@@ -24,6 +28,7 @@ import java.util.*;
 public class EnablePatchProcessor extends BaseProcessor<TypeElement> {
 
     private Utils utils;
+    private PatchIntrospector introspector;
     private PatcherGenerator patcherGenerator;
     private TypeElement patchInterface;
 
@@ -37,6 +42,7 @@ public class EnablePatchProcessor extends BaseProcessor<TypeElement> {
         utils = new Utils(types, elements);
         patcherGenerator = new PatcherGenerator(elements, utils);
         patchInterface = processingEnv.getElementUtils().getTypeElement(Patch.class.getCanonicalName());
+        introspector = new PatchIntrospector(types);
     }
 
     private PatchMethod extractPatchMethod(ExecutableElement method) {
@@ -125,13 +131,12 @@ public class EnablePatchProcessor extends BaseProcessor<TypeElement> {
                         .map(patchType -> new PatchTypePair(patchMethod.getEntityType(), patchType)))
                 .collect(utils.toTypeMirrorLikeSet());
 
-        Map<PatchTypePair, MethodSpec> patchMethodImpls = new HashMap<>();
+        final Map<PatchTypePair, MethodSpec> patchMethodImpls = utils.newTypeMirrorLikeMap();
         for (final PatchTypePair patchTypePair : patchTypePairs) {
-            final var patchProperties = utils.getProperties(patchTypePair.getPatchTypeElement());
-            final MethodSpec patchMethodSpec = patcherGenerator.generatePatchMethod(patchTypePair, patchProperties);
+            final PatchDefinition patchDefinition = createPatchDefinition(patchTypePair);
+            final MethodSpec patchMethodSpec = patcherGenerator.generatePatchMethod(patchDefinition);
             patchMethodImpls.put(patchTypePair, patchMethodSpec);
         }
-
 
         final TypeSpec.Builder implBuilder = patcherGenerator.generatePatcherImplementation(element, patchMethods, patchMethodImpls);
         patcherGenerator.postProcess(implBuilder, annotation);
@@ -140,6 +145,25 @@ public class EnablePatchProcessor extends BaseProcessor<TypeElement> {
             generateServiceFile(element, javaFile);
         }
         javaFile.writeTo(filer);
+    }
+
+    private PatchDefinition createPatchDefinition(PatchTypePair pair) {
+        final PatchDefinition patchDefinition = new PatchDefinition(pair);
+        final var entityProperties = introspector.getProperties(pair.getEntityTypeElement());
+        final var patchProperties = introspector.getProperties(pair.getPatchTypeElement());
+        for (final PropertyDescriptor patchProperty : patchProperties.values()) {
+            if (patchProperty.isAnnotationPresent(PatchIgnore.class)) {
+                continue;
+            }
+            final PatchPropertyInfo patchPropertyInfo = PatchPropertyInfo.from(patchProperty, patchProperty.getAnnotation(PatchProperty.class).orElse(null));
+            final PropertyDescriptor targetProperty = entityProperties.get(patchPropertyInfo.getTarget());
+            if (targetProperty == null) {
+                throw new ProcessingException(patchProperty.getGetter(), "Target property '%s' does not exist on entity of type %s", patchPropertyInfo.getTarget(), pair.getEntityType());
+            }
+            final PatchPropertyDefinition def = new PatchPropertyDefinition(patchProperty, targetProperty, patchPropertyInfo.getType());
+            patchDefinition.addPatch(def);
+        }
+        return patchDefinition;
     }
 
     private void generateServiceFile(TypeElement patcherInterface, JavaFile impl) throws IOException {

@@ -6,8 +6,10 @@ public class Entity {
 
     private String text;
     private int foo;
-
     private List<Integer> numbers;
+
+
+
 
     public String getText() {
         return text;

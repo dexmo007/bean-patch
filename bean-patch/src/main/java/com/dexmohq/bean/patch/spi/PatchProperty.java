@@ -6,10 +6,12 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 @Retention(RetentionPolicy.CLASS)
-@Target({ElementType.FIELD,ElementType.METHOD})
+@Target({ElementType.FIELD, ElementType.METHOD})
 public @interface PatchProperty {
 
     String value() default "";
+
+    PatchType type() default PatchType.SET;
 
     Class<? extends PropertyPatcher> patcher() default PropertyPatcher.class;
 
