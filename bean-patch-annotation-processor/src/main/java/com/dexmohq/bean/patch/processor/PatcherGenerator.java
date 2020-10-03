@@ -1,6 +1,8 @@
 package com.dexmohq.bean.patch.processor;
 
+import com.dexmohq.bean.patch.spi.Patcher;
 import com.squareup.javapoet.*;
+import org.springframework.stereotype.Component;
 
 import javax.annotation.processing.Generated;
 import javax.lang.model.element.Element;
@@ -111,7 +113,7 @@ public class PatcherGenerator {
                 .build();
     }
 
-    public JavaFile generatePatcherImplementation(TypeElement origin, List<PatchMethod> patchMethods, Map<PatchTypePair, MethodSpec> impls) {
+    public TypeSpec.Builder generatePatcherImplementation(TypeElement origin, List<PatchMethod> patchMethods, Map<PatchTypePair, MethodSpec> impls) {
         final String pkg = elements.getPackageOf(origin).getQualifiedName().toString();
         final var patcherImplSpecBuilder = TypeSpec.classBuilder(origin.getSimpleName().toString() + "Impl")
                 .addAnnotation(generateGeneratedAnnotation())
@@ -145,7 +147,7 @@ public class PatcherGenerator {
                     case ARRAY:
                     case COLLECTION:
                         methodBuilder.addCode(CodeBlock.builder()
-                                .beginControlFlow("for ($T e : $N)",patchParam.getPatchType(), patchParam.getParameter().getSimpleName().toString())
+                                .beginControlFlow("for ($T e : $N)", patchParam.getPatchType(), patchParam.getParameter().getSimpleName().toString())
                                 .addStatement("$N($N, $N)", methodToCall.name, patchMethod.getEntityParameter().getSimpleName().toString(), "e")
                                 .endControlFlow()
                                 .build());
@@ -157,7 +159,25 @@ public class PatcherGenerator {
             methodBuilder.addStatement("return $N", patchMethod.getEntityParameter().getSimpleName().toString());
             patcherImplSpecBuilder.addMethod(methodBuilder.build());
         }
-        return JavaFile.builder(pkg, patcherImplSpecBuilder.build()).skipJavaLangImports(true).build();
+        return patcherImplSpecBuilder;
+    }
+
+    public TypeSpec.Builder postProcess(TypeSpec.Builder builder, Patcher annotation) {
+        switch (annotation.componentModel()) {
+            case SPRING:
+                builder.addAnnotation(Component.class);
+                break;
+            case SERVICE_LOADER:
+            default:
+        }
+        return builder;
+    }
+
+    public JavaFile createFile(Element origin, TypeSpec typeSpec) {
+        final String pkg = elements.getPackageOf(origin).getQualifiedName().toString();
+        return JavaFile.builder(pkg, typeSpec)
+                .skipJavaLangImports(true)
+                .build();
     }
 
 }

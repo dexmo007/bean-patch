@@ -48,6 +48,13 @@
             <version>3.17.2</version>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-context</artifactId>
+            <version>5.2.2.RELEASE</version>
+            <optional>true</optional>
+            <scope>provided</scope>
+        </dependency>
 
 
     </dependencies>

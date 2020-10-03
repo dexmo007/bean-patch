@@ -5,6 +5,7 @@ import com.dexmohq.bean.patch.spi.Patcher;
 import com.google.auto.service.AutoService;
 import com.squareup.javapoet.JavaFile;
 import com.squareup.javapoet.MethodSpec;
+import com.squareup.javapoet.TypeSpec;
 
 import javax.annotation.processing.ProcessingEnvironment;
 import javax.annotation.processing.Processor;
@@ -14,7 +15,6 @@ import javax.lang.model.type.DeclaredType;
 import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
 import javax.tools.FileObject;
-import javax.tools.JavaFileManager;
 import javax.tools.StandardLocation;
 import java.io.BufferedWriter;
 import java.io.IOException;
@@ -108,6 +108,7 @@ public class EnablePatchProcessor extends BaseProcessor<TypeElement> {
             error(element, "Class annotated with @Patcher must be an interface");
             return;
         }
+        final Patcher annotation = element.getAnnotation(Patcher.class);
         final List<PatchMethod> patchMethods = new ArrayList<>();
         for (final Element child : element.getEnclosedElements()) {
             if (child.getKind() == ElementKind.METHOD) {
@@ -130,9 +131,15 @@ public class EnablePatchProcessor extends BaseProcessor<TypeElement> {
             final MethodSpec patchMethodSpec = patcherGenerator.generatePatchMethod(patchTypePair, patchProperties);
             patchMethodImpls.put(patchTypePair, patchMethodSpec);
         }
-        final JavaFile javaFile = patcherGenerator.generatePatcherImplementation(element, patchMethods, patchMethodImpls);
+
+
+        final TypeSpec.Builder implBuilder = patcherGenerator.generatePatcherImplementation(element, patchMethods, patchMethodImpls);
+        patcherGenerator.postProcess(implBuilder, annotation);
+        final JavaFile javaFile = patcherGenerator.createFile(element, implBuilder.build());
+        if (annotation.componentModel() == Patcher.ComponentModel.SERVICE_LOADER) {
+            generateServiceFile(element, javaFile);
+        }
         javaFile.writeTo(filer);
-        generateServiceFile(element, javaFile);
     }
 
     private void generateServiceFile(TypeElement patcherInterface, JavaFile impl) throws IOException {

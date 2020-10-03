@@ -4,7 +4,7 @@ import com.dexmohq.bean.patch.spi.Patcher;
 
 import java.util.List;
 
-@Patcher
+@Patcher(componentModel = Patcher.ComponentModel.SPRING)
 public interface EntityPatcher {
 
 

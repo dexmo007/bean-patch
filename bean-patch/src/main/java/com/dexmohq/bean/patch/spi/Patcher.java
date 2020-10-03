@@ -8,4 +8,10 @@ import java.lang.annotation.Target;
 @Retention(RetentionPolicy.CLASS)
 @Target(ElementType.TYPE)
 public @interface Patcher {
+
+    ComponentModel componentModel() default ComponentModel.SERVICE_LOADER;
+
+    enum ComponentModel {
+        SERVICE_LOADER,SPRING;
+    }
 }
