@@ -11,8 +11,8 @@ public class EntityPatch implements Patch<Entity> {
     private String text;
     @PatchProperty("foo")
     private Integer fooUpdateValue;
-//    @PatchProperty(value = "numbers", type = PatchType.ADD)
-//    private List<Integer> addNumbers;
+    @PatchProperty(value = "numbers", type = PatchType.ADD)
+    private List<Integer> addNumbers;
 //    @PatchProperty(value = "numbers", type = PatchType.REMOVE)
 //    private List<Integer> removeNumbers;
 
@@ -31,13 +31,14 @@ public class EntityPatch implements Patch<Entity> {
     public void setFooUpdateValue(Integer fooUpdateValue) {
         this.fooUpdateValue = fooUpdateValue;
     }
-    //    public List<Integer> getAddNumbers() {
-//        return addNumbers;
-//    }
-//
-//    public void setAddNumbers(List<Integer> addNumbers) {
-//        this.addNumbers = addNumbers;
-//    }
+
+    public List<Integer> getAddNumbers() {
+        return addNumbers;
+    }
+
+    public void setAddNumbers(List<Integer> addNumbers) {
+        this.addNumbers = addNumbers;
+    }
 //
 //    public List<Integer> getRemoveNumbers() {
 //        return removeNumbers;

@@ -34,7 +34,8 @@ public class PatcherGenerator {
     }
 
     private List<CodeBlock> generatePatchingBlocks(List<PatchPropertyDefinition> patchPropertyDefinitions) {
-        List<CodeBlock> patchBlocks = new ArrayList<>();
+        final List<CodeBlock> patchBlocks = new ArrayList<>();
+        final VariableNameGenerator variableNameGenerator = new VariableNameGenerator("entity", "patch");
         for (final PatchPropertyDefinition def : patchPropertyDefinitions) {
             final var patchReadMethod = def.getPatchReadMethod();
             final var entityWriteMethod = def.getEntityWriteMethod();
@@ -47,6 +48,22 @@ public class PatcherGenerator {
                             patchReadMethod.getSimpleName().toString());
                     break;
                 case ADD:
+                    final String varName = variableNameGenerator.nextName(def.getEntityProperty());
+                    code.addStatement("$T $N = entity.$N()",
+                            def.getEntityReadMethod().getReturnType(),
+                            varName,
+                            def.getEntityReadMethod().getSimpleName().toString());
+                    code.add(CodeBlock.builder()
+                            .beginControlFlow("if ($N == null)", varName)
+                            .addStatement("$N = new $T<>()", varName, ArrayList.class)// TODO choose correct Collection
+                            .addStatement("entity.$N($N)", entityWriteMethod.getSimpleName().toString(), varName)
+                            .endControlFlow()
+                            .build());
+                    code.addStatement("entity.$N().addAll(patch.$N())",
+                            def.getEntityReadMethod().getSimpleName().toString(),
+                            def.getPatchReadMethod().getSimpleName().toString()
+                    );
+                    break;
                 case REMOVE:
                 default:
                     throw new UnsupportedOperationException();
@@ -136,5 +153,6 @@ public class PatcherGenerator {
                 .skipJavaLangImports(true)
                 .build();
     }
+
 
 }

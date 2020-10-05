@@ -17,12 +17,23 @@ public class PatchPropertyDefinition {
         this.patchType = patchType;
     }
 
+    public PropertyDescriptor getPatchProperty() {
+        return patchProperty;
+    }
+
+    public PropertyDescriptor getEntityProperty() {
+        return entityProperty;
+    }
+
     public ExecutableElement getPatchReadMethod() {
         return patchProperty.getGetter();
     }
 
     public ExecutableElement getEntityWriteMethod() {
         return entityProperty.getSetter();
+    }
+    public ExecutableElement getEntityReadMethod() {
+        return entityProperty.getGetter();
     }
 
     public PatchType getPatchType() {
