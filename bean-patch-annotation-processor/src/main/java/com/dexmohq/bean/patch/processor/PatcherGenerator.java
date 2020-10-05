@@ -1,28 +1,34 @@
 package com.dexmohq.bean.patch.processor;
 
+import com.dexmohq.annotation.processing.Utils;
+import com.dexmohq.bean.patch.processor.model.*;
 import com.dexmohq.bean.patch.spi.Patcher;
 import com.squareup.javapoet.*;
 import org.springframework.stereotype.Component;
 
 import javax.annotation.processing.Generated;
 import javax.lang.model.element.Element;
+import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.Modifier;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.type.DeclaredType;
+import javax.lang.model.type.TypeKind;
+import javax.lang.model.type.TypeMirror;
 import javax.lang.model.util.Elements;
+import javax.lang.model.util.Types;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Collectors;
 
 public class PatcherGenerator {
 
     private final Elements elements;
+    private final Types types;
     private final Utils utils;
 
-    public PatcherGenerator(Elements elements, Utils utils) {
+    public PatcherGenerator(Elements elements, Types types, Utils utils) {
         this.elements = elements;
+        this.types = types;
         this.utils = utils;
     }
 
@@ -55,7 +61,8 @@ public class PatcherGenerator {
                             def.getEntityReadMethod().getSimpleName().toString());
                     code.add(CodeBlock.builder()
                             .beginControlFlow("if ($N == null)", varName)
-                            .addStatement("$N = new $T<>()", varName, ArrayList.class)// TODO choose correct Collection
+                            .addStatement("$N = new $T<>()", varName,
+                                    types.erasure(chooseCollectionType(def.getEntityProperty().getType())))// TODO choose correct Collection
                             .addStatement("entity.$N($N)", entityWriteMethod.getSimpleName().toString(), varName)
                             .endControlFlow()
                             .build());
@@ -74,6 +81,34 @@ public class PatcherGenerator {
         return patchBlocks;
     }
 
+    private DeclaredType chooseCollectionType(TypeMirror type) {
+        if (type.getKind() != TypeKind.DECLARED || !utils.implementsInterface(type, Collection.class)) {
+            throw new IllegalArgumentException();
+        }
+        final TypeElement typeElement = ((TypeElement) ((DeclaredType) type).asElement());
+        if (typeElement.getKind() == ElementKind.CLASS && !typeElement.getModifiers().contains(Modifier.ABSTRACT)) {
+            if (!utils.hasPublicNoArgsConstructor(typeElement)) {
+                throw new IllegalStateException(String.format("Collection of type %s has no default constructor", type));
+            }
+            return (DeclaredType) type;
+        }
+        return ((DeclaredType) elements.getTypeElement(chooseCollectionClass(type).getCanonicalName()).asType());
+    }
+
+    @SuppressWarnings("rawtypes")
+    private Class<? extends Collection> chooseCollectionClass(TypeMirror type) {
+        if (utils.implementsInterface(type, List.class)) {
+            return ArrayList.class;
+        }
+        if (utils.implementsInterface(type, SortedSet.class)) {
+            return TreeSet.class;
+        }
+        if (utils.implementsInterface(type, Set.class)) {
+            return HashSet.class;
+        }
+        return ArrayList.class;
+    }
+
     public MethodSpec generatePatchMethod(PatchDefinition patchDefinition) {
         final TypeName entityTypeName = TypeName.get(patchDefinition.getEntityType());
         final TypeName patchTypeName = TypeName.get(patchDefinition.getPatchType());
@@ -90,6 +125,7 @@ public class PatcherGenerator {
                 .build();
     }
 
+    // TODO ensure applyPatchInternal is free to use
     public TypeSpec.Builder generatePatcherImplementation(TypeElement origin, List<PatchMethod> patchMethods, Map<PatchTypePair, MethodSpec> impls) {
         final var patcherImplSpecBuilder = TypeSpec.classBuilder(origin.getSimpleName().toString() + "Impl")
                 .addAnnotation(generateGeneratedAnnotation())
@@ -120,7 +156,7 @@ public class PatcherGenerator {
                                 patchMethod.getEntityParameter().getSimpleName().toString(), patchParam.getParameter().getSimpleName().toString());
                         break;
                     case ARRAY:
-                    case COLLECTION:
+                    case ITERABLE:
                         methodBuilder.addCode(CodeBlock.builder()
                                 .beginControlFlow("for ($T e : $N)", patchParam.getPatchType(), patchParam.getParameter().getSimpleName().toString())
                                 .addStatement("$N($N, $N)", methodToCall.name, patchMethod.getEntityParameter().getSimpleName().toString(), "e")

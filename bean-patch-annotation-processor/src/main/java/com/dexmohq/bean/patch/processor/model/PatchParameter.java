@@ -1,4 +1,4 @@
-package com.dexmohq.bean.patch.processor;
+package com.dexmohq.bean.patch.processor.model;
 
 import javax.lang.model.element.VariableElement;
 import javax.lang.model.type.TypeMirror;

@@ -1,13 +1,12 @@
-package com.dexmohq.bean.patch.processor;
+package com.dexmohq.bean.patch.processor.model;
 
 import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.VariableElement;
 import javax.lang.model.type.DeclaredType;
-import javax.lang.model.type.TypeMirror;
 import java.util.Map;
 import java.util.Set;
 
-class PatchMethodBuilder {
+public class PatchMethodBuilder {
     private ExecutableElement element;
     private DeclaredType entityType;
     private int entityParameterIndex;

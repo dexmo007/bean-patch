@@ -1,7 +1,11 @@
 package com.dexmohq.bean.patch.processor;
 
+import com.dexmohq.annotation.processing.BaseProcessor;
+import com.dexmohq.annotation.processing.ProcessingException;
+import com.dexmohq.annotation.processing.Utils;
 import com.dexmohq.bean.patch.processor.beans.PatchIntrospector;
 import com.dexmohq.bean.patch.processor.beans.PropertyDescriptor;
+import com.dexmohq.bean.patch.processor.model.*;
 import com.dexmohq.bean.patch.spi.Patch;
 import com.dexmohq.bean.patch.spi.PatchIgnore;
 import com.dexmohq.bean.patch.spi.PatchProperty;
@@ -40,7 +44,7 @@ public class EnablePatchProcessor extends BaseProcessor<TypeElement> {
     public synchronized void init(ProcessingEnvironment processingEnv) {
         super.init(processingEnv);
         utils = new Utils(types, elements);
-        patcherGenerator = new PatcherGenerator(elements, utils);
+        patcherGenerator = new PatcherGenerator(elements, types, utils);
         patchInterface = processingEnv.getElementUtils().getTypeElement(Patch.class.getCanonicalName());
         introspector = new PatchIntrospector(types);
     }
@@ -75,15 +79,18 @@ public class EnablePatchProcessor extends BaseProcessor<TypeElement> {
                 }
                 patchParameters.put(i, new PatchParameter(parameter, PatchParameterType.ARRAY, componentType));
                 patchTypes.add(((DeclaredType) componentType));
-            } else if (utils.implementsInterface(parameter.asType(), elements.getTypeElement(Collection.class.getCanonicalName()))) {
-                final TypeMirror elementType = utils.findElementTypeOfCollection(parameter.asType());
+            } else if (
+                    types.isSameType(types.erasure(parameter.asType()),
+                            types.erasure(elements.getTypeElement(Iterable.class.getCanonicalName()).asType()))
+                    || utils.implementsInterface(parameter.asType(), elements.getTypeElement(Iterable.class.getCanonicalName()))) {
+                final TypeMirror elementType = utils.findElementTypeOfIterable(parameter.asType());
                 if (elementType.getKind() != TypeKind.DECLARED) {
                     throw new ProcessingException(parameter, "Element type of patch parameter must be a declared type");
                 }
                 if (!utils.implementsInterfaceConcretely(elementType, patchInterface, entityType)) {
                     throw new ProcessingException(parameter, "Element type must implement patch of entity");
                 }
-                patchParameters.put(i, new PatchParameter(parameter, PatchParameterType.COLLECTION, elementType));
+                patchParameters.put(i, new PatchParameter(parameter, PatchParameterType.ITERABLE, elementType));
                 patchTypes.add(((DeclaredType) elementType));
             } else {
                 throw new ProcessingException(parameter, "Patch method parameter must either be of entity type or patch type");

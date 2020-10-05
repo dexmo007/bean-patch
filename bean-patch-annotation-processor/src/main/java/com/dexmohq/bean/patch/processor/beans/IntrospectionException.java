@@ -1,6 +1,6 @@
 package com.dexmohq.bean.patch.processor.beans;
 
-import com.dexmohq.bean.patch.processor.ProcessingException;
+import com.dexmohq.annotation.processing.ProcessingException;
 
 import javax.lang.model.element.Element;
 

@@ -1,4 +1,6 @@
-package com.dexmohq.bean.patch.processor;
+package com.dexmohq.bean.patch.processor.model;
+
+import com.dexmohq.annotation.processing.TypeMirrorLike;
 
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.type.DeclaredType;

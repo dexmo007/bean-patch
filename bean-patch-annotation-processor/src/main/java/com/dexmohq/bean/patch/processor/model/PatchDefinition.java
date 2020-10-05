@@ -1,4 +1,4 @@
-package com.dexmohq.bean.patch.processor;
+package com.dexmohq.bean.patch.processor.model;
 
 import javax.lang.model.type.DeclaredType;
 import java.util.ArrayList;

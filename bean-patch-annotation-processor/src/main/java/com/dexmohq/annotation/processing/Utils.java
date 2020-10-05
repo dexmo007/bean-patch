@@ -1,6 +1,4 @@
-package com.dexmohq.bean.patch.processor;
-
-import com.google.common.base.CaseFormat;
+package com.dexmohq.annotation.processing;
 
 import javax.lang.model.element.*;
 import javax.lang.model.type.DeclaredType;
@@ -14,24 +12,46 @@ import java.util.stream.Collector;
 import java.util.stream.Collectors;
 
 import static java.util.stream.IntStream.range;
+import static javax.lang.model.element.ElementKind.*;
+import static javax.lang.model.element.Modifier.*;
 
 public class Utils {
 
     private final Types types;
     private final Elements elements;
+//    private final Map<Class<?>, DeclaredType> classToTypeCache
 
     public Utils(Types types, Elements elements) {
         this.types = types;
         this.elements = elements;
     }
 
+    public boolean hasPublicNoArgsConstructor(TypeElement typeElement) {
+        for (final Element element : typeElement.getEnclosedElements()) {
+            if (element.getKind() == CONSTRUCTOR
+                    && element.getModifiers().contains(PUBLIC)
+                    && ((ExecutableElement) element).getParameters().isEmpty()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public boolean implementsInterface(TypeMirror type, Class<?> interfaceType) {
+        return implementsInterface(type, elements.getTypeElement(interfaceType.getCanonicalName()));
+    }
+
     public boolean implementsInterface(TypeMirror type, TypeElement interfaceType) {
+        return implementsInterface(type, interfaceType.asType());
+    }
+
+    public boolean implementsInterface(TypeMirror type, TypeMirror interfaceType) {
         if (type.getKind() != TypeKind.DECLARED) {
             return false;
         }
         final TypeElement typeElement = (TypeElement) ((DeclaredType) type).asElement();
         return typeElement.getInterfaces().stream()
-                .anyMatch(t -> types.isAssignable(types.erasure(t), interfaceType.asType()));
+                .anyMatch(t -> types.isAssignable(types.erasure(t), interfaceType));
     }
 
     public boolean implementsInterfaceConcretely(TypeMirror type, TypeElement interfaceType, TypeMirror... typeVariableAssignments) {
@@ -56,17 +76,6 @@ public class Utils {
         final List<? extends TypeMirror> typeArgs = interfaceImpl.get().getTypeArguments();
         return range(0, typeArgs.size())
                 .allMatch(i -> types.isSameType(typeArgs.get(i), typeVariableAssignments[i]));
-    }
-
-
-
-    public <T extends TypeMirror> Comparator<T> typeMirrorComparator() {
-        return (o1, o2) -> {
-            if (types.isSameType(o1, o2)) {
-                return 0;
-            }
-            return o1.toString().compareTo(o2.toString());
-        };
     }
 
     public <E extends TypeMirror> Set<E> typeMirrorSet() {
@@ -118,16 +127,16 @@ public class Utils {
     }
 
 
-    public TypeMirror findElementTypeOfCollection(TypeMirror collection) {
+    public TypeMirror findElementTypeOfIterable(TypeMirror collection) {
         if (collection.getKind() != TypeKind.DECLARED) {
             return null;
         }
-        final TypeElement collectionTypeElement = elements.getTypeElement(Collection.class.getCanonicalName());
+        final TypeElement collectionTypeElement = elements.getTypeElement(Iterable.class.getCanonicalName());
         if (types.isSameType(((DeclaredType) collection).asElement().asType(), collectionTypeElement.asType())) {
             return ((DeclaredType) collection).getTypeArguments().get(0);
         }
         for (final TypeMirror typeMirror : types.directSupertypes(collection)) {
-            final TypeMirror elementType = findElementTypeOfCollection(typeMirror);
+            final TypeMirror elementType = findElementTypeOfIterable(typeMirror);
             if (elementType != null) {
                 return elementType;
             }

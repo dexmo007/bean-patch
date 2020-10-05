@@ -1,4 +1,4 @@
-package com.dexmohq.bean.patch.processor;
+package com.dexmohq.annotation.processing;
 
 import javax.lang.model.element.Element;
 

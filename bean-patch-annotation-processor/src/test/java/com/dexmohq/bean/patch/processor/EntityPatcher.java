@@ -7,6 +7,6 @@ import java.util.List;
 @Patcher
 public interface EntityPatcher {
 
-    Entity applyPatch(Entity entity, List<EntityPatch> patch);
+    Entity applyPatch(Entity entity, Iterable<EntityPatch> patch);
 
 }

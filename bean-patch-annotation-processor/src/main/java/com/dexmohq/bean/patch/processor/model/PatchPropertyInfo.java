@@ -1,4 +1,4 @@
-package com.dexmohq.bean.patch.processor;
+package com.dexmohq.bean.patch.processor.model;
 
 import com.dexmohq.bean.patch.processor.beans.PropertyDescriptor;
 import com.dexmohq.bean.patch.spi.PatchProperty;
