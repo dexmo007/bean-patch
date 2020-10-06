@@ -13,8 +13,8 @@ public class EntityPatch implements Patch<Entity> {
     private Integer fooUpdateValue;
     @PatchProperty(value = "numbers", type = PatchType.ADD)
     private List<Integer> addNumbers;
-//    @PatchProperty(value = "numbers", type = PatchType.REMOVE)
-//    private List<Integer> removeNumbers;
+    @PatchProperty(value = "numbers", type = PatchType.REMOVE)
+    private List<Integer> removeNumbers;
 
     public String getText() {
         return text;
@@ -39,12 +39,12 @@ public class EntityPatch implements Patch<Entity> {
     public void setAddNumbers(List<Integer> addNumbers) {
         this.addNumbers = addNumbers;
     }
-//
-//    public List<Integer> getRemoveNumbers() {
-//        return removeNumbers;
-//    }
-//
-//    public void setRemoveNumbers(List<Integer> removeNumbers) {
-//        this.removeNumbers = removeNumbers;
-//    }
+
+    public List<Integer> getRemoveNumbers() {
+        return removeNumbers;
+    }
+
+    public void setRemoveNumbers(List<Integer> removeNumbers) {
+        this.removeNumbers = removeNumbers;
+    }
 }

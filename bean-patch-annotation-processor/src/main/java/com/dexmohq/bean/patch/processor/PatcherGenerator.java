@@ -54,24 +54,11 @@ public class PatcherGenerator {
                             patchReadMethod.getSimpleName().toString());
                     break;
                 case ADD:
-                    final String varName = variableNameGenerator.nextName(def.getEntityProperty());
-                    code.addStatement("$T $N = entity.$N()",
-                            def.getEntityReadMethod().getReturnType(),
-                            varName,
-                            def.getEntityReadMethod().getSimpleName().toString());
-                    code.add(CodeBlock.builder()
-                            .beginControlFlow("if ($N == null)", varName)
-                            .addStatement("$N = new $T<>()", varName,
-                                    types.erasure(chooseCollectionType(def.getEntityProperty().getType())))// TODO choose correct Collection
-                            .addStatement("entity.$N($N)", entityWriteMethod.getSimpleName().toString(), varName)
-                            .endControlFlow()
-                            .build());
-                    code.addStatement("entity.$N().addAll(patch.$N())",
-                            def.getEntityReadMethod().getSimpleName().toString(),
-                            def.getPatchReadMethod().getSimpleName().toString()
-                    );
+                    genAdd(variableNameGenerator, def, code);
                     break;
                 case REMOVE:
+                    genRemove(variableNameGenerator, def, code);
+                    break;
                 default:
                     throw new UnsupportedOperationException();
             }
@@ -79,6 +66,60 @@ public class PatcherGenerator {
             patchBlocks.add(code.endControlFlow().build());
         }
         return patchBlocks;
+    }
+
+    private void genAdd(VariableNameGenerator variableNameGenerator, PatchPropertyDefinition def, CodeBlock.Builder code) {
+        final String varName = variableNameGenerator.nextName(def.getEntityProperty());
+        code.addStatement("$T $N = entity.$N()",
+                def.getEntityReadMethod().getReturnType(),
+                varName,
+                def.getEntityReadMethod().getSimpleName().toString());
+        final TypeMirror entityType = def.getEntityProperty().getType();
+        code.add(CodeBlock.builder()
+                .beginControlFlow("if ($N == null)", varName)
+                .addStatement("$N = new $T<>()", varName,
+                        types.erasure(chooseCollectionType(entityType)))
+                .addStatement("entity.$N($N)", def.getEntityWriteMethod().getSimpleName().toString(), varName)
+                .endControlFlow()
+                .build());
+        if (!utils.isCollectionType(entityType)) {
+            throw new IllegalStateException("Entity property type must be a collection to perform ADD, but was: " + entityType);
+        }
+        final TypeMirror patchType = def.getPatchProperty().getType();
+        if (utils.isCollectionOfSupertypeOf(entityType, patchType)) {
+            // add single patch value
+            code.addStatement("entity.$N().add(patch.$N())",
+                    def.getEntityReadMethod().getSimpleName().toString(),
+                    def.getPatchReadMethod().getSimpleName().toString()
+            );
+            return;
+        }
+        if (utils.isCollectionType(patchType)) {
+            final TypeMirror patchElementType = utils.findElementTypeOfIterable(patchType);
+            if (utils.isCollectionOfSupertypeOf(entityType, patchElementType)) {
+                // add multiple patch values
+                code.addStatement("entity.$N().addAll(patch.$N())",
+                        def.getEntityReadMethod().getSimpleName().toString(),
+                        def.getPatchReadMethod().getSimpleName().toString()
+                );
+                return;
+            }
+                throw new IllegalStateException("Patch values don't fit in entity collection");
+        }
+        throw new IllegalStateException("Patch type doesn't conform to entity type");
+    }
+
+    private void genRemove(VariableNameGenerator variableNameGenerator, PatchPropertyDefinition def, CodeBlock.Builder code) {
+        final String varName = variableNameGenerator.nextName(def.getEntityProperty());
+        code.addStatement("$T $N = entity.$N()",
+                def.getEntityReadMethod().getReturnType(),
+                varName,
+                def.getEntityReadMethod().getSimpleName().toString());
+        code.add(CodeBlock.builder()
+                .beginControlFlow("if ($N != null)", varName)
+                .addStatement("$N.removeAll(patch.$N())", varName, def.getPatchReadMethod().getSimpleName().toString())
+                .endControlFlow()
+                .build());
     }
 
     private DeclaredType chooseCollectionType(TypeMirror type) {

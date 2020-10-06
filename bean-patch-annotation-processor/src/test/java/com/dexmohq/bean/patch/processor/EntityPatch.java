@@ -1,17 +1,19 @@
 package com.dexmohq.bean.patch.processor;
 
 import com.dexmohq.bean.patch.spi.Patch;
+import com.dexmohq.bean.patch.spi.PatchProperty;
+import com.dexmohq.bean.patch.spi.PatchType;
 
 import java.util.List;
-
 public class EntityPatch implements Patch<Entity> {
 
     private String text;
-
-
-    private Integer foo;
-
-    private List<Integer> numbers;
+    @PatchProperty("foo")
+    private Integer fooUpdateValue;
+    @PatchProperty(value = "numbers", type = PatchType.ADD)
+    private List<Integer> addNumbers;
+    @PatchProperty(value = "numbers", type = PatchType.REMOVE)
+    private List<Integer> removeNumbers;
 
     public String getText() {
         return text;
@@ -21,20 +23,28 @@ public class EntityPatch implements Patch<Entity> {
         this.text = text;
     }
 
-    public Integer getFoo() {
-        return foo;
+    public Integer getFooUpdateValue() {
+        return fooUpdateValue;
     }
 
-
-    public void setFoo(Integer foo) {
-        this.foo = foo;
+    public void setFooUpdateValue(Integer fooUpdateValue) {
+        this.fooUpdateValue = fooUpdateValue;
     }
 
-    public List<Integer> getNumbers() {
-        return numbers;
+    public List<Integer> getAddNumbers() {
+        return addNumbers;
     }
 
-    public void setNumbers(List<Integer> numbers) {
-        this.numbers = numbers;
+    public void setAddNumbers(List<Integer> addNumbers) {
+        this.addNumbers = addNumbers;
+    }
+
+    public List<Integer> getRemoveNumbers() {
+        return removeNumbers;
+    }
+
+    public void setRemoveNumbers(List<Integer> removeNumbers) {
+        this.removeNumbers = removeNumbers;
     }
 }
+

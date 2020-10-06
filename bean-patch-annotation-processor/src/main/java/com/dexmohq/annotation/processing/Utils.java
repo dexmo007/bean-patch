@@ -49,9 +49,22 @@ public class Utils {
         if (type.getKind() != TypeKind.DECLARED) {
             return false;
         }
+        final TypeMirror erasedInterfaceType = types.erasure(interfaceType);
         final TypeElement typeElement = (TypeElement) ((DeclaredType) type).asElement();
         return typeElement.getInterfaces().stream()
-                .anyMatch(t -> types.isAssignable(types.erasure(t), interfaceType));
+                .anyMatch(t -> types.isAssignable(types.erasure(t), erasedInterfaceType));
+    }
+
+    public boolean isCollectionType(TypeMirror type) {
+        return implementsInterface(type, Collection.class);
+    }
+
+    public boolean isCollectionOfSupertypeOf(TypeMirror collectionType, TypeMirror elementType) {
+        if (!isCollectionType(collectionType)) {
+            return false;
+        }
+        final TypeMirror actualElementType = findElementTypeOfIterable(collectionType);
+        return types.isSubtype(actualElementType, elementType);
     }
 
     public boolean implementsInterfaceConcretely(TypeMirror type, TypeElement interfaceType, TypeMirror... typeVariableAssignments) {
