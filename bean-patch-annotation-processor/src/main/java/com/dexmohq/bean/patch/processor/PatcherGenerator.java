@@ -2,11 +2,10 @@ package com.dexmohq.bean.patch.processor;
 
 import com.dexmohq.annotation.processing.Utils;
 import com.dexmohq.bean.patch.processor.model.*;
-import com.dexmohq.bean.patch.spi.Patcher;
 import com.squareup.javapoet.*;
-import org.springframework.stereotype.Component;
 
 import javax.annotation.processing.Generated;
+import javax.annotation.processing.ProcessingEnvironment;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.Modifier;
@@ -22,11 +21,13 @@ import java.util.stream.Collectors;
 
 public class PatcherGenerator {
 
+    private final ProcessingEnvironment processingEnv;
     private final Elements elements;
     private final Types types;
     private final Utils utils;
 
-    public PatcherGenerator(Elements elements, Types types, Utils utils) {
+    public PatcherGenerator(ProcessingEnvironment processingEnv, Elements elements, Types types, Utils utils) {
+        this.processingEnv = processingEnv;
         this.elements = elements;
         this.types = types;
         this.utils = utils;
@@ -82,31 +83,18 @@ public class PatcherGenerator {
                 .addStatement("entity.$N($N)", def.getEntityWriteMethod().getSimpleName().toString(), varName)
                 .endControlFlow()
                 .build());
-        if (!utils.isCollectionType(entityType)) {
-            throw new IllegalStateException("Entity property type must be a collection to perform ADD, but was: " + entityType);
-        }
-        final TypeMirror patchType = def.getPatchProperty().getType();
-        if (utils.isCollectionOfSupertypeOf(entityType, patchType)) {
+        if (def.getSourceCardinality() == Cardinality.ONE) {
             // add single patch value
             code.addStatement("entity.$N().add(patch.$N())",
                     def.getEntityReadMethod().getSimpleName().toString(),
                     def.getPatchReadMethod().getSimpleName().toString()
             );
-            return;
+        } else {
+            code.addStatement("entity.$N().addAll(patch.$N())",
+                    def.getEntityReadMethod().getSimpleName().toString(),
+                    def.getPatchReadMethod().getSimpleName().toString()
+            );
         }
-        if (utils.isCollectionType(patchType)) {
-            final TypeMirror patchElementType = utils.findElementTypeOfIterable(patchType);
-            if (utils.isCollectionOfSupertypeOf(entityType, patchElementType)) {
-                // add multiple patch values
-                code.addStatement("entity.$N().addAll(patch.$N())",
-                        def.getEntityReadMethod().getSimpleName().toString(),
-                        def.getPatchReadMethod().getSimpleName().toString()
-                );
-                return;
-            }
-                throw new IllegalStateException("Patch values don't fit in entity collection");
-        }
-        throw new IllegalStateException("Patch type doesn't conform to entity type");
     }
 
     private void genRemove(VariableNameGenerator variableNameGenerator, PatchPropertyDefinition def, CodeBlock.Builder code) {
@@ -115,9 +103,21 @@ public class PatcherGenerator {
                 def.getEntityReadMethod().getReturnType(),
                 varName,
                 def.getEntityReadMethod().getSimpleName().toString());
+        final String method;
+        switch (def.getSourceCardinality()) {
+            case ONE:
+                method = "remove";
+                break;
+            case MANY:
+                method = "removeAll";
+                break;
+            default:
+                throw new IllegalStateException();
+
+        }
         code.add(CodeBlock.builder()
                 .beginControlFlow("if ($N != null)", varName)
-                .addStatement("$N.removeAll(patch.$N())", varName, def.getPatchReadMethod().getSimpleName().toString())
+                .addStatement("$N.$N(patch.$N())", varName, method, def.getPatchReadMethod().getSimpleName().toString())
                 .endControlFlow()
                 .build());
     }
@@ -167,13 +167,14 @@ public class PatcherGenerator {
     }
 
     // TODO ensure applyPatchInternal is free to use
-    public TypeSpec.Builder generatePatcherImplementation(TypeElement origin, List<PatchMethod> patchMethods, Map<PatchTypePair, MethodSpec> impls) {
+    public TypeSpec generatePatcherImplementation(PatcherDefinition patcherDefinition, Map<PatchTypePair, MethodSpec> impls) {
+        final var origin = patcherDefinition.getOrigin();
         final var patcherImplSpecBuilder = TypeSpec.classBuilder(origin.getSimpleName().toString() + "Impl")
                 .addAnnotation(generateGeneratedAnnotation())
                 .addModifiers(Modifier.PUBLIC)
                 .addSuperinterface(ClassName.get(origin));
         impls.values().forEach(patcherImplSpecBuilder::addMethod);
-        for (final PatchMethod patchMethod : patchMethods) {
+        for (final PatchMethod patchMethod : patcherDefinition.getPatchMethods()) {
             final var methodBuilder = MethodSpec.methodBuilder(patchMethod.getElement().getSimpleName().toString())
                     .addAnnotation(Override.class)
                     .addModifiers(Modifier.PUBLIC)
@@ -211,17 +212,9 @@ public class PatcherGenerator {
             methodBuilder.addStatement("return $N", patchMethod.getEntityParameter().getSimpleName().toString());
             patcherImplSpecBuilder.addMethod(methodBuilder.build());
         }
-        return patcherImplSpecBuilder;
-    }
-
-    public void postProcess(TypeSpec.Builder builder, Patcher annotation) {
-        switch (annotation.componentModel()) {
-            case SPRING:
-                builder.addAnnotation(Component.class);
-                break;
-            case SERVICE_LOADER:
-            default:
-        }
+        patcherDefinition.getComponentModel()
+                .postProcessType(patcherImplSpecBuilder, processingEnv);
+        return patcherImplSpecBuilder.build();
     }
 
     public JavaFile createFile(Element origin, TypeSpec typeSpec) {

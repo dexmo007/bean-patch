@@ -65,6 +65,7 @@ public class PropertyDescriptor {
                 ;
     }
 
+
     public boolean isAnnotationPresent(Class<? extends Annotation> annotationType) {
         return Streams.ofNullables(field, getter, setter)
                 .anyMatch(e -> e.getAnnotation(annotationType) != null);

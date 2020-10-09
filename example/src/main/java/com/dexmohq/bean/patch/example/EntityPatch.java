@@ -16,6 +16,9 @@ public class EntityPatch implements Patch<Entity> {
     @PatchProperty(value = "numbers", type = PatchType.REMOVE)
     private List<Integer> removeNumbers;
 
+    //@PatchProperty()
+    //private List<String> removeByIds;
+
     public String getText() {
         return text;
     }

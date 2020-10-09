@@ -16,12 +16,12 @@ import static javax.lang.model.element.ElementKind.FIELD;
 import static javax.lang.model.element.ElementKind.METHOD;
 import static javax.lang.model.element.Modifier.*;
 
-public class PatchIntrospector {
+public class PropertiesIntrospector {
 
     private final Types types;
     private final Map<TypeElement, Map<String, PropertyDescriptor>> cache;
 
-    public PatchIntrospector(Types types) {
+    public PropertiesIntrospector(Types types) {
         this.types = types;
         cache = new HashMap<>();
     }

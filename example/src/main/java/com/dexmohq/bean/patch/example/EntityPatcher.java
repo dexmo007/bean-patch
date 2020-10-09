@@ -9,7 +9,6 @@ public interface EntityPatcher {
 
     Entity applyPatch(Entity entity, EntityPatch patch);
 
-
     Entity applyPatch(Entity entity, EntityPatch patch, EntityPatch... morePatches);
 
 }

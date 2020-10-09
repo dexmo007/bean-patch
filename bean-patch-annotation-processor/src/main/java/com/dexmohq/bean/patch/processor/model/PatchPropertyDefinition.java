@@ -10,11 +10,13 @@ public class PatchPropertyDefinition {
     private final PropertyDescriptor patchProperty;
     private final PropertyDescriptor entityProperty;
     private final PatchType patchType;
+    private final Cardinality sourceCardinality;
 
-    public PatchPropertyDefinition(PropertyDescriptor patchProperty, PropertyDescriptor entityProperty, PatchType patchType) {
+    public PatchPropertyDefinition(PropertyDescriptor patchProperty, PropertyDescriptor entityProperty, PatchType patchType, Cardinality sourceCardinality) {
         this.patchProperty = patchProperty;
         this.entityProperty = entityProperty;
         this.patchType = patchType;
+        this.sourceCardinality = sourceCardinality;
     }
 
     public PropertyDescriptor getPatchProperty() {
@@ -38,5 +40,9 @@ public class PatchPropertyDefinition {
 
     public PatchType getPatchType() {
         return patchType;
+    }
+
+    public Cardinality getSourceCardinality() {
+        return sourceCardinality;
     }
 }

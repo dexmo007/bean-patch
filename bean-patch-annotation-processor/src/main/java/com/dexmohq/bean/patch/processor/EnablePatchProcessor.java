@@ -3,12 +3,11 @@ package com.dexmohq.bean.patch.processor;
 import com.dexmohq.annotation.processing.BaseProcessor;
 import com.dexmohq.annotation.processing.ProcessingException;
 import com.dexmohq.annotation.processing.Utils;
-import com.dexmohq.bean.patch.processor.beans.PatchIntrospector;
-import com.dexmohq.bean.patch.processor.beans.PropertyDescriptor;
+import com.dexmohq.bean.patch.processor.beans.PropertiesIntrospector;
+import com.dexmohq.bean.patch.processor.gen.ServiceLoaderComponentModel;
+import com.dexmohq.bean.patch.processor.gen.SpringComponentModel;
 import com.dexmohq.bean.patch.processor.model.*;
 import com.dexmohq.bean.patch.spi.Patch;
-import com.dexmohq.bean.patch.spi.PatchIgnore;
-import com.dexmohq.bean.patch.spi.PatchProperty;
 import com.dexmohq.bean.patch.spi.Patcher;
 import com.google.auto.service.AutoService;
 import com.squareup.javapoet.JavaFile;
@@ -22,9 +21,6 @@ import javax.lang.model.type.ArrayType;
 import javax.lang.model.type.DeclaredType;
 import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
-import javax.tools.FileObject;
-import javax.tools.StandardLocation;
-import java.io.BufferedWriter;
 import java.io.IOException;
 import java.util.*;
 
@@ -32,7 +28,8 @@ import java.util.*;
 public class EnablePatchProcessor extends BaseProcessor<TypeElement> {
 
     private Utils utils;
-    private PatchIntrospector introspector;
+    private PropertiesIntrospector introspector;
+    private PatchIntrospector patchIntrospector;
     private PatcherGenerator patcherGenerator;
     private TypeElement patchInterface;
 
@@ -44,9 +41,10 @@ public class EnablePatchProcessor extends BaseProcessor<TypeElement> {
     public synchronized void init(ProcessingEnvironment processingEnv) {
         super.init(processingEnv);
         utils = new Utils(types, elements);
-        patcherGenerator = new PatcherGenerator(elements, types, utils);
+        patcherGenerator = new PatcherGenerator(processingEnv, elements, types, utils);
         patchInterface = processingEnv.getElementUtils().getTypeElement(Patch.class.getCanonicalName());
-        introspector = new PatchIntrospector(types);
+        introspector = new PropertiesIntrospector(types);
+        patchIntrospector = new PatchIntrospector(introspector, types, utils);
     }
 
     private PatchMethod extractPatchMethod(ExecutableElement method) {
@@ -82,7 +80,7 @@ public class EnablePatchProcessor extends BaseProcessor<TypeElement> {
             } else if (
                     types.isSameType(types.erasure(parameter.asType()),
                             types.erasure(elements.getTypeElement(Iterable.class.getCanonicalName()).asType()))
-                    || utils.implementsInterface(parameter.asType(), elements.getTypeElement(Iterable.class.getCanonicalName()))) {
+                            || utils.implementsInterface(parameter.asType(), elements.getTypeElement(Iterable.class.getCanonicalName()))) {
                 final TypeMirror elementType = utils.findElementTypeOfIterable(parameter.asType());
                 if (elementType.getKind() != TypeKind.DECLARED) {
                     throw new ProcessingException(parameter, "Element type of patch parameter must be a declared type");
@@ -122,6 +120,18 @@ public class EnablePatchProcessor extends BaseProcessor<TypeElement> {
             return;
         }
         final Patcher annotation = element.getAnnotation(Patcher.class);
+        final var patcherDefinition = new PatcherDefinition();
+        patcherDefinition.setOrigin(element);
+        switch (annotation.componentModel()) {
+            case SERVICE_LOADER:
+                patcherDefinition.setComponentModel(new ServiceLoaderComponentModel());
+                break;
+            case SPRING:
+                patcherDefinition.setComponentModel(new SpringComponentModel());
+                break;
+            default:
+                throw new IllegalStateException();
+        }
         final List<PatchMethod> patchMethods = new ArrayList<>();
         for (final Element child : element.getEnclosedElements()) {
             if (child.getKind() == ElementKind.METHOD) {
@@ -133,6 +143,7 @@ public class EnablePatchProcessor extends BaseProcessor<TypeElement> {
                 patchMethods.add(patchMethod);
             }
         }
+        patcherDefinition.setPatchMethods(patchMethods);
         final Set<PatchTypePair> patchTypePairs = patchMethods.stream()
                 .flatMap(patchMethod -> patchMethod.getPatchTypes().stream()
                         .map(patchType -> new PatchTypePair(patchMethod.getEntityType(), patchType)))
@@ -140,49 +151,17 @@ public class EnablePatchProcessor extends BaseProcessor<TypeElement> {
 
         final Map<PatchTypePair, MethodSpec> patchMethodImpls = utils.newTypeMirrorLikeMap();
         for (final PatchTypePair patchTypePair : patchTypePairs) {
-            final PatchDefinition patchDefinition = createPatchDefinition(patchTypePair);
+            final PatchDefinition patchDefinition = patchIntrospector.createPatchDefinition(patchTypePair);
             final MethodSpec patchMethodSpec = patcherGenerator.generatePatchMethod(patchDefinition);
             patchMethodImpls.put(patchTypePair, patchMethodSpec);
         }
 
-        final TypeSpec.Builder implBuilder = patcherGenerator.generatePatcherImplementation(element, patchMethods, patchMethodImpls);
-        patcherGenerator.postProcess(implBuilder, annotation);
-        final JavaFile javaFile = patcherGenerator.createFile(element, implBuilder.build());
-        if (annotation.componentModel() == Patcher.ComponentModel.SERVICE_LOADER) {
-            generateServiceFile(element, javaFile);
-        }
+        final TypeSpec impl = patcherGenerator.generatePatcherImplementation(patcherDefinition, patchMethodImpls);
+        final JavaFile javaFile = patcherGenerator.createFile(element, impl);
+        patcherDefinition.getComponentModel()
+                .postProcessFile(element, javaFile, processingEnv);
         javaFile.writeTo(filer);
     }
 
-    private PatchDefinition createPatchDefinition(PatchTypePair pair) {
-        final PatchDefinition patchDefinition = new PatchDefinition(pair);
-        final var entityProperties = introspector.getProperties(pair.getEntityTypeElement());
-        final var patchProperties = introspector.getProperties(pair.getPatchTypeElement());
-        for (final PropertyDescriptor patchProperty : patchProperties.values()) {
-            if (patchProperty.isAnnotationPresent(PatchIgnore.class)) {
-                continue;
-            }
-            final PatchPropertyInfo patchPropertyInfo = PatchPropertyInfo.from(patchProperty, patchProperty.getAnnotation(PatchProperty.class).orElse(null));
-            final PropertyDescriptor targetProperty = entityProperties.get(patchPropertyInfo.getTarget());
-            if (targetProperty == null) {
-                throw new ProcessingException(patchProperty.getGetter(), "Target property '%s' does not exist on entity of type %s", patchPropertyInfo.getTarget(), pair.getEntityType());
-            }
-            final PatchPropertyDefinition def = new PatchPropertyDefinition(patchProperty, targetProperty, patchPropertyInfo.getType());
-            patchDefinition.addPatch(def);
-        }
-        return patchDefinition;
-    }
 
-    private void generateServiceFile(TypeElement patcherInterface, JavaFile impl) throws IOException {
-        final String fqImpl = impl.packageName.isEmpty()
-                ? impl.typeSpec.name
-                : impl.packageName + "." + impl.typeSpec.name;
-        final String resourceFile = "META-INF/services/" + patcherInterface.getQualifiedName().toString();
-        final FileObject file = filer.createResource(StandardLocation.CLASS_OUTPUT, "", resourceFile, patcherInterface);
-        final BufferedWriter writer = new BufferedWriter(file.openWriter());
-        writer.write(fqImpl);
-        writer.newLine();
-        writer.flush();
-        writer.close();
-    }
 }
